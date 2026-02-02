@@ -30,13 +30,21 @@ const LANGUAGE_NAMES: Record<string, string> = {
   it: "Italian",
 };
 
-function buildPrompt(difficultyLevel: number, profession: string | null, lang: string): string {
+function buildPrompt(
+  difficultyLevel: number,
+  profession: string | null,
+  lang: string,
+  style: string | null
+): string {
   const diffRule = getDifficultyRule(difficultyLevel);
   const langName = LANGUAGE_NAMES[lang] ?? "English";
   const professionPart = profession?.trim()
     ? ` The paragraph should be relevant to someone working in or studying: "${profession.trim()}". Use vocabulary and situations useful in that field.`
     : "";
-  return `Write one short paragraph (80–120 words) in ${langName}. Rules: ${diffRule}.${professionPart} No questions, no lists, no headings, plain text only. Output only the paragraph, entirely in ${langName}.`;
+  const stylePart = style?.trim()
+    ? ` Write in this style: "${style.trim()}".`
+    : "";
+  return `Write one short paragraph (80–120 words) in ${langName}. Rules: ${diffRule}.${professionPart}${stylePart} No questions, no lists, no headings, plain text only. Output only the paragraph, entirely in ${langName}.`;
 }
 
 export async function GET(request: NextRequest) {
@@ -50,6 +58,7 @@ export async function GET(request: NextRequest) {
   const difficultyLevel = Math.min(10, Math.max(1, parseInt(searchParams.get("difficulty") ?? "5", 10) || 5));
   const profession = searchParams.get("profession") || null;
   const lang = searchParams.get("lang")?.trim() || "en";
+  const style = searchParams.get("style")?.trim() || null;
 
   if (!apiKey) {
     console.log("[generate] OPENAI_API_KEY is missing or empty — using fallback");
@@ -66,7 +75,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const openai = new OpenAI({ apiKey });
-    const userContent = buildPrompt(difficultyLevel, profession, lang);
+    const userContent = buildPrompt(difficultyLevel, profession, lang, style);
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
       messages: [{ role: "user", content: userContent }],

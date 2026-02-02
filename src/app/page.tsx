@@ -29,6 +29,7 @@ const STORAGE_KEY = "my_words_v1";
 const USAGE_STORAGE_KEY = "openai_usage_v1";
 const DEF_LANG_STORAGE_KEY = "definition_language_v1";
 const PARAGRAPH_LANG_STORAGE_KEY = "paragraph_language_v1";
+const SENTENCE_STYLE_STORAGE_KEY = "sentence_style_v1";
 
 // 뜻 보기·단락 생성 공통 9개 언어 (프랑스어 포함)
 const CONTENT_LANGUAGES: { code: string; name: string }[] = [
@@ -184,6 +185,14 @@ export default function Home() {
       return "en";
     }
   });
+  const [sentenceStyle, setSentenceStyle] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return localStorage.getItem(SENTENCE_STYLE_STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
   const [showSettings, setShowSettings] = useState(false);
 
   const fetchParagraph = useCallback(async () => {
@@ -196,6 +205,7 @@ export default function Home() {
         difficulty: String(difficulty),
         lang: paragraphLanguage,
         ...(profession.trim() && { profession: profession.trim() }),
+        ...(sentenceStyle.trim() && { style: sentenceStyle.trim() }),
         _: String(Date.now()),
       });
       const res = await fetch(`/api/generate?${params}`, { cache: "no-store" });
@@ -210,7 +220,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [difficulty, profession, paragraphLanguage]);
+  }, [difficulty, profession, paragraphLanguage, sentenceStyle]);
 
   useEffect(() => {
     fetchParagraph();
@@ -458,6 +468,41 @@ export default function Home() {
             ))}
           </div>
 
+          <div style={{ marginBottom: 16 }}>
+            <label
+              htmlFor="sentence-style-input"
+              style={{
+                display: "block",
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--muted)",
+                fontFamily: "system-ui, sans-serif",
+                marginBottom: 8,
+              }}
+            >
+              문장 스타일 (Sentence style)
+            </label>
+            <input
+              id="sentence-style-input"
+              type="text"
+              value={sentenceStyle}
+              onChange={(e) => setSentenceStyle(e.target.value)}
+              placeholder="e.g. formal, casual, storytelling, news (비워두면 기본)"
+              style={{
+                width: "100%",
+                maxWidth: 320,
+                padding: "10px 14px",
+                fontSize: 14,
+                fontFamily: "system-ui, sans-serif",
+                border: "1px solid var(--border)",
+                borderRadius: 8,
+                background: "var(--background)",
+                color: "var(--foreground)",
+                boxSizing: "border-box",
+              }}
+            />
+          </div>
+
           <div style={{ marginBottom: 14 }}>
             <span
               style={{
@@ -556,15 +601,16 @@ export default function Home() {
           <div style={{ display: "flex", gap: 10 }}>
             <button
               type="button"
-              onClick={() => {
-                try {
-                  localStorage.setItem(DEF_LANG_STORAGE_KEY, definitionLanguage);
-                  localStorage.setItem(PARAGRAPH_LANG_STORAGE_KEY, paragraphLanguage);
-                } catch {
-                  // ignore
-                }
-                setShowSettings(false);
-              }}
+            onClick={() => {
+              try {
+                localStorage.setItem(DEF_LANG_STORAGE_KEY, definitionLanguage);
+                localStorage.setItem(PARAGRAPH_LANG_STORAGE_KEY, paragraphLanguage);
+                localStorage.setItem(SENTENCE_STYLE_STORAGE_KEY, sentenceStyle);
+              } catch {
+                // ignore
+              }
+              setShowSettings(false);
+            }}
               style={{
                 padding: "8px 20px",
                 fontSize: 14,
@@ -581,15 +627,16 @@ export default function Home() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                try {
-                  setDefinitionLanguage(localStorage.getItem(DEF_LANG_STORAGE_KEY) || "ko");
-                  setParagraphLanguage(localStorage.getItem(PARAGRAPH_LANG_STORAGE_KEY) || "en");
-                } catch {
-                  // ignore
-                }
-                setShowSettings(false);
-              }}
+            onClick={() => {
+              try {
+                setDefinitionLanguage(localStorage.getItem(DEF_LANG_STORAGE_KEY) || "ko");
+                setParagraphLanguage(localStorage.getItem(PARAGRAPH_LANG_STORAGE_KEY) || "en");
+                setSentenceStyle(localStorage.getItem(SENTENCE_STYLE_STORAGE_KEY) || "");
+              } catch {
+                // ignore
+              }
+              setShowSettings(false);
+            }}
               style={{
                 padding: "8px 20px",
                 fontSize: 14,
