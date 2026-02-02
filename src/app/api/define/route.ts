@@ -11,6 +11,7 @@ const LANG_NAMES: Record<string, string> = {
   fr: "French",
   de: "German",
   pt: "Portuguese",
+  it: "Italian",
 };
 
 const SUPPORTED_LANGS = new Set(Object.keys(LANG_NAMES));
@@ -20,24 +21,32 @@ interface MeaningResult {
   usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
 }
 
-async function getMeaningInLanguage(word: string, lang: string): Promise<MeaningResult> {
+async function getMeaningInLanguage(
+  word: string,
+  lang: string,
+  wordLanguage?: string
+): Promise<MeaningResult> {
   const languageName = LANG_NAMES[lang] ?? LANG_NAMES.en;
+  const wordLangName = wordLanguage ? (LANG_NAMES[wordLanguage] ?? "that language") : "English";
   const apiKey = getOpenAIApiKey();
   if (!apiKey) {
-    const meanings = lang === "en" ? await getEnglishThenFallback(word) : ["(Could not load definition)"];
+    const meanings =
+      lang === "en" && !wordLanguage
+        ? await getEnglishThenFallback(word)
+        : ["(Could not load definition)"];
     return { meanings };
   }
 
   try {
     const openai = new OpenAI({ apiKey });
+    const prompt =
+      wordLanguage && wordLanguage !== "en"
+        ? `Give the meaning of the ${wordLangName} word "${word}" in ${languageName}. Return 1–2 short definitions only, one per line, in ${languageName} only. No numbers, bullets, or extra explanation. Output only the definitions.`
+        : `Give the meaning of the English word "${word}" in ${languageName}. Return 1–2 short definitions only, one per line, in ${languageName} only. No numbers, bullets, or extra explanation. Output only the definitions.`;
+
     const completion = await openai.chat.completions.create({
       model: process.env.OPENAI_MODEL ?? "gpt-4o-mini",
-      messages: [
-        {
-          role: "user",
-          content: `Give the meaning of the English word "${word}" in ${languageName}. Return 1–2 short definitions only, one per line, in ${languageName} only. No numbers, bullets, or extra explanation. Output only the definitions.`,
-        },
-      ],
+      messages: [{ role: "user", content: prompt }],
       max_tokens: 60,
       temperature: 0.3,
     });
@@ -64,7 +73,10 @@ async function getMeaningInLanguage(word: string, lang: string): Promise<Meaning
       usage,
     };
   } catch {
-    const meanings = lang === "en" ? await getEnglishThenFallback(word) : ["(Could not load definition)"];
+    const meanings =
+      lang === "en" && !wordLanguage
+        ? await getEnglishThenFallback(word)
+        : ["(Could not load definition)"];
     return { meanings };
   }
 }
@@ -97,9 +109,15 @@ async function getEnglishThenFallback(word: string): Promise<string[]> {
 }
 
 export async function GET(request: NextRequest) {
-  const word = request.nextUrl.searchParams.get("word")?.toLowerCase().trim();
+  const rawWord = request.nextUrl.searchParams.get("word")?.trim();
+  const word =
+    rawWord && /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7A3]/.test(rawWord)
+      ? rawWord
+      : rawWord?.toLowerCase().trim() ?? "";
   const lang = request.nextUrl.searchParams.get("lang")?.toLowerCase() || "ko";
+  const fromLang = request.nextUrl.searchParams.get("fromLang")?.toLowerCase() || undefined;
   const safeLang = SUPPORTED_LANGS.has(lang) ? lang : "ko";
+  const safeFromLang = fromLang && SUPPORTED_LANGS.has(fromLang) ? fromLang : undefined;
 
   if (!word) {
     return NextResponse.json(
@@ -108,6 +126,6 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const { meanings, usage } = await getMeaningInLanguage(word, safeLang);
+  const { meanings, usage } = await getMeaningInLanguage(word, safeLang, safeFromLang);
   return NextResponse.json({ word, meanings, usage });
 }

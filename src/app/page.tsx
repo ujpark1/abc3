@@ -28,8 +28,10 @@ interface SavedWord {
 const STORAGE_KEY = "my_words_v1";
 const USAGE_STORAGE_KEY = "openai_usage_v1";
 const DEF_LANG_STORAGE_KEY = "definition_language_v1";
+const PARAGRAPH_LANG_STORAGE_KEY = "paragraph_language_v1";
 
-const DEFINITION_LANGUAGES: { code: string; name: string }[] = [
+// 뜻 보기·단락 생성 공통 9개 언어 (프랑스어 포함)
+const CONTENT_LANGUAGES: { code: string; name: string }[] = [
   { code: "ko", name: "Korean" },
   { code: "zh", name: "Chinese" },
   { code: "ja", name: "Japanese" },
@@ -38,6 +40,7 @@ const DEFINITION_LANGUAGES: { code: string; name: string }[] = [
   { code: "fr", name: "French" },
   { code: "de", name: "German" },
   { code: "pt", name: "Portuguese" },
+  { code: "it", name: "Italian" },
 ];
 
 // gpt-4o-mini approximate: $0.15/1M input, $0.60/1M output (USD)
@@ -97,9 +100,23 @@ function resetStoredUsage(): void {
 }
 
 // ── Helpers ────────────────────────────────────────
+// 한글·중국어·일본어 문자 허용 (Hiragana, Katakana, CJK, Hangul)
+const CJK_HANGUL_REGEX = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7A3]/;
 
 function normalize(word: string): string {
-  return word.replace(/[^a-zA-Z'-]/g, "").toLowerCase();
+  const kept = word
+    .replace(/[^a-zA-Z'\-\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7A3]/g, "")
+    .trim();
+  if (!kept) return "";
+  if (/^[a-zA-Z'\-]*$/.test(kept)) return kept.toLowerCase();
+  return kept;
+}
+
+/** 단락을 클릭 가능한 토큰으로 분리 (공백 유지, 라틴 단어·CJK/한글 단일 문자) */
+function tokenizeContent(content: string): string[] {
+  const re = /\s+|[a-zA-Z'\-]+|[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FFF\uAC00-\uD7A3]|./g;
+  const match = content.match(re);
+  return match ?? [];
 }
 
 function getSavedWords(): SavedWord[] {
@@ -159,6 +176,14 @@ export default function Home() {
       return "ko";
     }
   });
+  const [paragraphLanguage, setParagraphLanguage] = useState(() => {
+    if (typeof window === "undefined") return "en";
+    try {
+      return localStorage.getItem(PARAGRAPH_LANG_STORAGE_KEY) || "en";
+    } catch {
+      return "en";
+    }
+  });
   const [showSettings, setShowSettings] = useState(false);
 
   const fetchParagraph = useCallback(async () => {
@@ -169,6 +194,7 @@ export default function Home() {
     try {
       const params = new URLSearchParams({
         difficulty: String(difficulty),
+        lang: paragraphLanguage,
         ...(profession.trim() && { profession: profession.trim() }),
         _: String(Date.now()),
       });
@@ -184,7 +210,7 @@ export default function Home() {
     } finally {
       setLoading(false);
     }
-  }, [difficulty, profession]);
+  }, [difficulty, profession, paragraphLanguage]);
 
   useEffect(() => {
     fetchParagraph();
@@ -196,7 +222,9 @@ export default function Home() {
   // Word click handler
   const handleWordClick = async (rawWord: string) => {
     const word = normalize(rawWord);
-    if (!word || word.length < 2) return;
+    if (!word) return;
+    // 라틴 알파벳만 있는 경우 2글자 이상, 한/중/일은 1글자도 허용
+    if (word.length < 2 && !CJK_HANGUL_REGEX.test(word)) return;
 
     setSelectedWord(word);
     setWordAlreadySaved(isWordSaved(word));
@@ -204,9 +232,12 @@ export default function Home() {
     setDefinition(null);
 
     try {
-      const res = await fetch(
-        `/api/define?word=${encodeURIComponent(word)}&lang=${encodeURIComponent(definitionLanguage)}`
-      );
+      const params = new URLSearchParams({
+        word,
+        lang: definitionLanguage,
+        fromLang: paragraphLanguage,
+      });
+      const res = await fetch(`/api/define?${params}`);
       const data: WordDefinition = await res.json();
       setDefinition(data);
       if (data.usage) {
@@ -246,8 +277,8 @@ export default function Home() {
     setDefinition(null);
   };
 
-  // Split paragraph into words for rendering
-  const words = paragraph?.content.split(/(\s+)/) ?? [];
+  // Split paragraph into clickable tokens (Latin words, CJK/Hangul per character, spaces)
+  const words = paragraph?.content ? tokenizeContent(paragraph.content) : [];
 
   return (
     <div
@@ -343,6 +374,53 @@ export default function Home() {
                 marginRight: 12,
               }}
             >
+              Paragraph language
+            </span>
+          </div>
+          <p
+            style={{
+              fontSize: 12,
+              color: "var(--muted)",
+              fontFamily: "system-ui, sans-serif",
+              marginBottom: 10,
+              marginTop: 0,
+            }}
+          >
+            Language for the generated paragraph:
+          </p>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
+            {CONTENT_LANGUAGES.map(({ code, name }) => (
+              <button
+                key={code}
+                type="button"
+                onClick={() => setParagraphLanguage(code)}
+                style={{
+                  padding: "6px 12px",
+                  fontSize: 13,
+                  fontFamily: "system-ui, sans-serif",
+                  borderRadius: 8,
+                  border: paragraphLanguage === code ? "2px solid var(--accent)" : "1px solid var(--border)",
+                  background: paragraphLanguage === code ? "var(--accent-light)" : "var(--card)",
+                  color: "var(--foreground)",
+                  cursor: "pointer",
+                  fontWeight: paragraphLanguage === code ? 600 : 500,
+                }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ marginBottom: 14 }}>
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: "var(--muted)",
+                fontFamily: "system-ui, sans-serif",
+                marginRight: 12,
+              }}
+            >
               Definition language
             </span>
           </div>
@@ -358,7 +436,7 @@ export default function Home() {
             Show word meanings in:
           </p>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 16 }}>
-            {DEFINITION_LANGUAGES.map(({ code, name }) => (
+            {CONTENT_LANGUAGES.map(({ code, name }) => (
               <button
                 key={code}
                 type="button"
@@ -475,30 +553,58 @@ export default function Home() {
               ))}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => {
-              try {
-                localStorage.setItem(DEF_LANG_STORAGE_KEY, definitionLanguage);
-              } catch {
-                // ignore
-              }
-              setShowSettings(false);
-            }}
-            style={{
-              padding: "8px 20px",
-              fontSize: 14,
-              fontFamily: "system-ui, sans-serif",
-              fontWeight: 600,
-              borderRadius: 8,
-              border: "none",
-              background: "var(--accent)",
-              color: "#fff",
-              cursor: "pointer",
-            }}
-          >
-            Save
-          </button>
+          <div style={{ display: "flex", gap: 10 }}>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  localStorage.setItem(DEF_LANG_STORAGE_KEY, definitionLanguage);
+                  localStorage.setItem(PARAGRAPH_LANG_STORAGE_KEY, paragraphLanguage);
+                } catch {
+                  // ignore
+                }
+                setShowSettings(false);
+              }}
+              style={{
+                padding: "8px 20px",
+                fontSize: 14,
+                fontFamily: "system-ui, sans-serif",
+                fontWeight: 600,
+                borderRadius: 8,
+                border: "none",
+                background: "var(--accent)",
+                color: "#fff",
+                cursor: "pointer",
+              }}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                try {
+                  setDefinitionLanguage(localStorage.getItem(DEF_LANG_STORAGE_KEY) || "ko");
+                  setParagraphLanguage(localStorage.getItem(PARAGRAPH_LANG_STORAGE_KEY) || "en");
+                } catch {
+                  // ignore
+                }
+                setShowSettings(false);
+              }}
+              style={{
+                padding: "8px 20px",
+                fontSize: 14,
+                fontFamily: "system-ui, sans-serif",
+                fontWeight: 600,
+                borderRadius: 8,
+                border: "1px solid var(--border)",
+                background: "var(--card)",
+                color: "var(--foreground)",
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
