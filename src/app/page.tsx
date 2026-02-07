@@ -194,12 +194,15 @@ export default function Home() {
     }
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [fullTranslation, setFullTranslation] = useState<string | null>(null);
+  const [fullTranslationLoading, setFullTranslationLoading] = useState(false);
 
   const fetchParagraph = useCallback(async () => {
     setLoading(true);
     setError(null);
     setSelectedWord(null);
     setDefinition(null);
+    setFullTranslation(null);
     try {
       const params = new URLSearchParams({
         difficulty: String(difficulty),
@@ -285,6 +288,34 @@ export default function Home() {
   const closeTooltip = () => {
     setSelectedWord(null);
     setDefinition(null);
+  };
+
+  // 전체 해석
+  const handleFullTranslate = async () => {
+    if (!paragraph?.content?.trim()) return;
+    setFullTranslationLoading(true);
+    setFullTranslation(null);
+    try {
+      const res = await fetch("/api/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text: paragraph.content, lang: definitionLanguage }),
+      });
+      const data = await res.json();
+      if (data.translation) {
+        setFullTranslation(data.translation);
+        if (data.usage) {
+          addStoredUsage(data.usage);
+          setUsageStats(getStoredUsage());
+        }
+      } else {
+        setFullTranslation("(해석을 불러올 수 없습니다.)");
+      }
+    } catch {
+      setFullTranslation("(해석을 불러올 수 없습니다.)");
+    } finally {
+      setFullTranslationLoading(false);
+    }
   };
 
   // Split paragraph into clickable tokens (Latin words, CJK/Hangul per character, spaces)
@@ -855,6 +886,49 @@ export default function Home() {
           </p>
         )}
       </div>
+
+      {/* 전체 해석 버튼 & 결과 */}
+      {!loading && !error && paragraph?.content && (
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={handleFullTranslate}
+            disabled={fullTranslationLoading}
+            style={{
+              padding: "10px 20px",
+              fontSize: 14,
+              fontFamily: "system-ui, sans-serif",
+              fontWeight: 600,
+              borderRadius: 8,
+              border: "1px solid var(--border)",
+              background: "var(--card)",
+              color: "var(--foreground)",
+              cursor: fullTranslationLoading ? "not-allowed" : "pointer",
+              opacity: fullTranslationLoading ? 0.7 : 1,
+            }}
+          >
+            {fullTranslationLoading ? "해석 중..." : "전체 해석"}
+          </button>
+          {fullTranslation && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: 20,
+                background: "var(--card)",
+                border: "1px solid var(--border)",
+                borderRadius: 12,
+                lineHeight: 1.7,
+                fontSize: 16,
+                fontFamily: "system-ui, sans-serif",
+                color: "var(--foreground)",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {fullTranslation}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Word definition card */}
       {selectedWord && (
